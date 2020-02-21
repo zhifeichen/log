@@ -38,13 +38,13 @@ var (
 )
 
 // Init init log
-func Init(l Level, path string) {
-	level = l
+func Init(o Options) {
+	level = o.level
 	log.SetOutput(&lumberjack.Logger{
-		Filename:   path,
-		MaxSize:    10, // MB
-		MaxBackups: 20,
-		MaxAge:     30,
+		Filename:   o.filename,
+		MaxSize:    o.maxSize, // MB
+		MaxBackups: o.maxBackups,
+		MaxAge:     o.maxAge,
 	})
 	log.SetFlags(log.Ldate | log.Ltime)
 }
