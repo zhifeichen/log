@@ -4,7 +4,7 @@ import "strings"
 
 // Options log options
 type Options struct {
-	level      Level
+	level      level
 	filename   string
 	maxSize    int
 	maxAge     int
@@ -29,8 +29,8 @@ func NewOptions(options ...Option) Options {
 	return opts
 }
 
-// LevelString of log
-func LevelString(l string) Option {
+// Level of log
+func Level(l string) Option {
 	newl := LevelDebug
 	switch strings.ToLower(l) {
 	case "fatal":

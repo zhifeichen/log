@@ -12,11 +12,11 @@ import (
 )
 
 // Level is a log level
-type Level int
+type level int
 
 // log level
 const (
-	LevelFatal Level = iota
+	LevelFatal level = iota
 	LevelError
 	LevelWarn
 	LevelInfo
@@ -24,7 +24,7 @@ const (
 	LevelTrace
 )
 
-var levelString = map[Level]string{
+var levelString = map[level]string{
 	LevelFatal: "Fatal",
 	LevelError: "Error",
 	LevelWarn: "Warn",
@@ -34,12 +34,12 @@ var levelString = map[Level]string{
 }
 
 var (
-	level = LevelTrace
+	logLevel = LevelTrace
 )
 
 // Init init log
 func Init(o Options) {
-	level = o.level
+	logLevel = o.level
 	log.SetOutput(&lumberjack.Logger{
 		Filename:   o.filename,
 		MaxSize:    o.maxSize, // MB
@@ -50,30 +50,30 @@ func Init(o Options) {
 }
 
 // Log makes use of log
-func Log(file string, line int, l Level, v ...interface{}) {
+func Log(file string, line int, l level, v ...interface{}) {
 	fl := fmt.Sprintf("[%5s] %s:%d: ", levelString[l], file, line)
 	lv := fmt.Sprint(v...)
 	log.Println(fl, lv)
 }
 
 // Logf makes use of log
-func Logf(file string, line int, l Level, format string, v ...interface{}) {
+func Logf(file string, line int, l level, format string, v ...interface{}) {
 	fl := fmt.Sprintf("[%5s] %s:%d: ", levelString[l], file, line)
 	lv := fmt.Sprintf(format, v...)
 	log.Print(fl, lv)
 }
 
 // WithLevel logs with the level specified
-func WithLevel(file string, line int, l Level, v ...interface{}) {
-	if l > level {
+func WithLevel(file string, line int, l level, v ...interface{}) {
+	if l > logLevel {
 		return
 	}
 	Log(file, line, l, v...)
 }
 
 // WithLevelf logs with the level specified
-func WithLevelf(file string, line int, l Level, format string, v ...interface{}) {
-	if l > level {
+func WithLevelf(file string, line int, l level, format string, v ...interface{}) {
+	if l > logLevel {
 		return
 	}
 	Logf(file, line, l, format, v...)
