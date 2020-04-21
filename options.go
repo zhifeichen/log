@@ -1,6 +1,9 @@
 package log
 
-import "strings"
+import (
+	"io"
+	"strings"
+)
 
 // Options log options
 type Options struct {
@@ -9,6 +12,7 @@ type Options struct {
 	maxSize    int
 	maxAge     int
 	maxBackups int
+	writers    []io.Writer
 }
 
 // Option log option
@@ -17,10 +21,10 @@ type Option func(*Options)
 // NewOptions new log options
 func NewOptions(options ...Option) Options {
 	opts := Options{
-		level:    LevelDebug,
-		filename: "./log.log",
-		maxSize: 10, // default 10M
-		maxAge: 30, // default 30 days
+		level:      LevelDebug,
+		filename:   "./log.log",
+		maxSize:    10, // default 10M
+		maxAge:     30, // default 30 days
 		maxBackups: 20, // default 20 backups
 	}
 	for _, o := range options {
@@ -76,5 +80,15 @@ func MaxAge(a int) Option {
 func MaxBackups(b int) Option {
 	return func(o *Options) {
 		o.maxBackups = b
+	}
+}
+
+// Writers set multi writer
+func Writers(w ...io.Writer) Option {
+	return func(o *Options) {
+		if o.writers == nil {
+			o.writers = make([]io.Writer, 0)
+		}
+		o.writers = append(o.writers, w...)
 	}
 }

@@ -40,12 +40,17 @@ var (
 // Init init log
 func Init(o Options) {
 	logLevel = o.level
-	log.SetOutput(&lumberjack.Logger{
+	var w io.Writer = &lumberjack.Logger{
 		Filename:   o.filename,
 		MaxSize:    o.maxSize, // MB
 		MaxBackups: o.maxBackups,
 		MaxAge:     o.maxAge,
-	})
+	}
+	if len(o.writers) > 0 {
+		o.writers = append(o.writers, w)
+		w = io.MultiWriter(o.writers...)
+	}
+	log.SetOutput(w)
 	log.SetFlags(log.Ldate | log.Ltime)
 }
 
