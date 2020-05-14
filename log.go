@@ -56,7 +56,7 @@ func Init(o Options) {
 
 // Log makes use of log
 func Log(file string, line int, l level, v ...interface{}) {
-	fl := fmt.Sprintf("[%5s] %s:%d: ", levelString[l], file, line)
+	fl := fmt.Sprintf("[%5s] %s:%d:", levelString[l], file, line)
 	lv := fmt.Sprint(v...)
 	log.Println(fl, lv)
 }
