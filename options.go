@@ -34,6 +34,8 @@ func NewOptions(options ...Option) Options {
 }
 
 // Level of log
+// level(ascending order): trace, debug, info, warn, error, fatal
+// default debug
 func Level(l string) Option {
 	newl := LevelDebug
 	switch strings.ToLower(l) {
@@ -56,20 +58,23 @@ func Level(l string) Option {
 }
 
 // Filename set log file name
+// default ./log.log
 func Filename(p string) Option {
 	return func(o *Options) {
 		o.filename = p
 	}
 }
 
-// MaxSize of log
+// MaxSize of log(megabytes)
+// default 10M
 func MaxSize(s int) Option {
 	return func(o *Options) {
 		o.maxSize = s
 	}
 }
 
-// MaxAge of log
+// MaxAge of log(days)
+// default 30
 func MaxAge(a int) Option {
 	return func(o *Options) {
 		o.maxAge = a
@@ -77,6 +82,7 @@ func MaxAge(a int) Option {
 }
 
 // MaxBackups of log
+// default 20
 func MaxBackups(b int) Option {
 	return func(o *Options) {
 		o.maxBackups = b
