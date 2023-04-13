@@ -32,7 +32,7 @@ func New(o Options) *Logger {
 		w = io.MultiWriter(o.writers...)
 	}
 
-	l := log.New(w, "", log.Ldate|log.Ltime)
+	l := log.New(w, "", log.Ldate|log.Ltime|log.Lmicroseconds)
 	return &Logger{
 		logger:   l,
 		logLevel: o.level,
