@@ -35,13 +35,12 @@ func New(o Options) *Logger {
 		w = io.MultiWriter(o.writers...)
 	}
 
-	// bufWriter := bufio.NewWriterSize(w, 64*1024)
-	// bufWriter := w
-	l := log.New(w, "", log.Ldate|log.Ltime)
+	bufWriter := bufio.NewWriterSize(w, 64*1024)
+	l := log.New(bufWriter, "", log.Ldate|log.Ltime|log.Lmicroseconds)
 	return &Logger{
 		logger:    l,
 		logLevel:  o.level,
-		bufWriter: nil,
+		bufWriter: bufWriter,
 	}
 }
 
