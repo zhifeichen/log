@@ -1,6 +1,7 @@
 package log
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -17,6 +18,7 @@ type Logger struct {
 	logger    *log.Logger
 	logLevel  level
 	oldWriter io.Writer
+	bufWriter *bufio.Writer
 }
 
 // New init log
@@ -26,16 +28,20 @@ func New(o Options) *Logger {
 		MaxSize:    o.maxSize, // MB
 		MaxBackups: o.maxBackups,
 		MaxAge:     o.maxAge,
+		LocalTime:  true,
 	}
 	if len(o.writers) > 0 {
 		o.writers = append(o.writers, w)
 		w = io.MultiWriter(o.writers...)
 	}
 
+	// bufWriter := bufio.NewWriterSize(w, 64*1024)
+	// bufWriter := w
 	l := log.New(w, "", log.Ldate|log.Ltime)
 	return &Logger{
-		logger:   l,
-		logLevel: o.level,
+		logger:    l,
+		logLevel:  o.level,
+		bufWriter: nil,
 	}
 }
 
@@ -49,6 +55,13 @@ func (logger *Logger) ResumeWriter() {
 		logger.logger.SetOutput(logger.oldWriter)
 		logger.oldWriter = nil
 	}
+}
+
+func (logger *Logger) Flush() error {
+	if logger.bufWriter != nil {
+		return logger.bufWriter.Flush()
+	}
+	return nil
 }
 
 // Log makes use of log

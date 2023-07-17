@@ -1,55 +1,28 @@
 package main
 
-import "github.com/zhifeichen/log"
+import (
+	"fmt"
+	"time"
+
+	"github.com/zhifeichen/log"
+)
 
 func main() {
 	logger := log.New(log.NewOptions(
-		log.Filename("example.log"),
+		log.Filename("example.txt"),
+		log.MaxSize(60),
+		log.Level("trace"),
 	))
-	logger.Trace("trace")
-	logger.Tracef("tracef\n")
-	logger.Debug("debug")
-	logger.Debugf("debugf\n")
-	logger.Info("info")
-	logger.Infof("info\n")
-	logger.Warn("warn")
-	logger.Warnf("warn\n")
-	logger.Error("error")
-	logger.Errorf("errorf")
-	logger.Discard()
-	logger.Trace("trace")
-	logger.Tracef("tracef\n")
-	logger.Debug("debug")
-	logger.Debugf("debugf\n")
-	logger.Info("info")
-	logger.Infof("info\n")
-	logger.Warn("warn")
-	logger.Warnf("warn\n")
-	logger.Error("error")
-	logger.Errorf("errorf")
-	logger.ResumeWriter()
-	logger.Error("resum")
-	logger.Trace("trace")
-	logger.Tracef("tracef\n")
-	logger.Debug("debug")
-	logger.Debugf("debugf\n")
-	logger.Info("info")
-	logger.Infof("info\n")
-	logger.Warn("warn")
-	logger.Warnf("warn\n")
-	logger.Error("error")
-	logger.Errorf("errorf")
-
-
-	log.Init(log.NewOptions())
-	log.Trace("trace")
-	log.Tracef("tracef\n")
-	log.Debug("debug")
-	log.Debugf("debugf\n")
-	log.Info("info")
-	log.Infof("info\n")
-	log.Warn("warn")
-	log.Warnf("warn\n")
-	log.Error("error")
-	log.Errorf("errorf")
+	now := time.Now()
+	for range [3]struct{}{} {
+		for range [500000]struct{}{} {
+			logger.Tracef("C:Usersccworkspacegomyapplogexample>benchmarck %s\n", "test")
+			logger.Debugf("C:Usersccworkspacegomyapplogexample>benchmarck %s\n", "test")
+			logger.Infof("C:sersccworkspacegomyapplogexample>benchmarck %s\n", "test")
+			logger.Errorf("C:Usersccworkspacegomyapplogexample>benchmarck %s\n", "test")
+		}
+	}
+	logger.Info("done")
+	logger.Flush()
+	fmt.Printf("%d\n", time.Since(now).Milliseconds())
 }

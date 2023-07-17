@@ -1,6 +1,7 @@
 package log
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
@@ -27,14 +28,15 @@ const (
 var levelString = map[level]string{
 	LevelFatal: "Fatal",
 	LevelError: "Error",
-	LevelWarn: "Warn",
-	LevelInfo: "Info",
+	LevelWarn:  "Warn",
+	LevelInfo:  "Info",
 	LevelDebug: "Debug",
 	LevelTrace: "Trace",
 }
 
 var (
-	logLevel = LevelTrace
+	logLevel  = LevelTrace
+	bufWriter *bufio.Writer
 )
 
 // Init init log
@@ -45,13 +47,23 @@ func Init(o Options) {
 		MaxSize:    o.maxSize, // MB
 		MaxBackups: o.maxBackups,
 		MaxAge:     o.maxAge,
+		LocalTime:  true,
 	}
 	if len(o.writers) > 0 {
 		o.writers = append(o.writers, w)
 		w = io.MultiWriter(o.writers...)
 	}
-	log.SetOutput(w)
+	bufWriter = bufio.NewWriterSize(w, 64*1024)
+	log.SetOutput(bufWriter)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+}
+
+// Flush flush buf to file
+func Flush() error {
+	if bufWriter != nil {
+		return bufWriter.Flush()
+	}
+	return nil
 }
 
 // Log makes use of log
