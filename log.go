@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -37,6 +38,8 @@ var levelString = map[level]string{
 var (
 	logLevel  = LevelTrace
 	bufWriter *bufio.Writer
+	debounced debounce
+	logChn    chan string
 )
 
 // Init init log
@@ -54,6 +57,11 @@ func Init(o Options) {
 		w = io.MultiWriter(o.writers...)
 	}
 	bufWriter = bufio.NewWriterSize(w, 64*1024)
+	debounced = newDebouncer(time.Second, func() {
+		bufWriter.Flush()
+	})
+	logChn = make(chan string, 50)
+	go logLoop()
 	log.SetOutput(bufWriter)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 }
@@ -66,18 +74,36 @@ func Flush() error {
 	return nil
 }
 
+func logLoop() {
+	for {
+		debounced()
+		l, ok := <-logChn
+		if !ok {
+			return
+		}
+		if bufWriter != nil && len(l) > bufWriter.Available() {
+			bufWriter.Flush()
+		}
+		log.Print(l)
+	}
+}
+
 // Log makes use of log
 func Log(file string, line int, l level, v ...interface{}) {
 	fl := fmt.Sprintf("[%5s] %s:%d:", levelString[l], file, line)
 	lv := fmt.Sprint(v...)
-	log.Println(fl, lv)
+	// log.Println(fl, lv)
+	str := fmt.Sprintln(fl, lv)
+	logChn <- str
 }
 
 // Logf makes use of log
 func Logf(file string, line int, l level, format string, v ...interface{}) {
 	fl := fmt.Sprintf("[%5s] %s:%d: ", levelString[l], file, line)
 	lv := fmt.Sprintf(format, v...)
-	log.Print(fl, lv)
+	// log.Print(fl, lv)
+	str := fmt.Sprint(fl, lv)
+	logChn <- str
 }
 
 // WithLevel logs with the level specified

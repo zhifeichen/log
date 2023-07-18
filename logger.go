@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -19,6 +20,8 @@ type Logger struct {
 	logLevel  level
 	oldWriter io.Writer
 	bufWriter *bufio.Writer
+	debounce  debounce
+	chn       chan string
 }
 
 // New init log
@@ -37,11 +40,17 @@ func New(o Options) *Logger {
 
 	bufWriter := bufio.NewWriterSize(w, 64*1024)
 	l := log.New(bufWriter, "", log.Ldate|log.Ltime|log.Lmicroseconds)
-	return &Logger{
+	ll := &Logger{
 		logger:    l,
 		logLevel:  o.level,
 		bufWriter: bufWriter,
+		chn:       make(chan string, 50),
 	}
+	ll.debounce = newDebouncer(time.Second, func() {
+		ll.bufWriter.Flush()
+	})
+	go ll.loop()
+	return ll
 }
 
 func (logger *Logger) Discard() {
@@ -63,18 +72,50 @@ func (logger *Logger) Flush() error {
 	return nil
 }
 
+func (logger *Logger) flush() {
+	logger.debounce()
+}
+
+func (logger *Logger) loop() {
+	for {
+		logger.flush()
+		l, ok := <-logger.chn
+		if !ok {
+			return
+		}
+		if logger.bufWriter != nil && len(l) > logger.bufWriter.Available() {
+			logger.bufWriter.Flush()
+		}
+		logger.logger.Print(l)
+	}
+}
+
 // Log makes use of log
 func (logger *Logger) Log(file string, line int, l level, v ...interface{}) {
 	fl := fmt.Sprintf("[%5s] %s:%d:", levelString[l], file, line)
 	lv := fmt.Sprint(v...)
-	logger.logger.Println(fl, lv)
+	// size := len(fl) + len(lv)
+	// if logger.bufWriter != nil && size > logger.bufWriter.Available() {
+	// 	logger.Flush()
+	// }
+	// logger.logger.Println(fl, lv)
+	// logger.flush()
+	buf := fmt.Sprintln(fl, lv)
+	logger.chn <- buf
 }
 
 // Logf makes use of log
 func (logger *Logger) Logf(file string, line int, l level, format string, v ...interface{}) {
 	fl := fmt.Sprintf("[%5s] %s:%d: ", levelString[l], file, line)
 	lv := fmt.Sprintf(format, v...)
-	logger.logger.Print(fl, lv)
+	// size := len(fl) + len(lv)
+	// if logger.bufWriter != nil && size > logger.bufWriter.Available() {
+	// 	logger.Flush()
+	// }
+	// logger.logger.Print(fl, lv)
+	// logger.flush()
+	buf := fmt.Sprint(fl, lv)
+	logger.chn <- buf
 }
 
 // WithLevel logs with the level specified
