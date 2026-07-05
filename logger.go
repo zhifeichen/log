@@ -48,7 +48,13 @@ func New(o Options) Logger {
 	encConf := zap.NewProductionEncoderConfig()
 	encConf.EncodeTime = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05.000")
 	encConf.EncodeLevel = zapcore.CapitalLevelEncoder
-	encoder := zapcore.NewConsoleEncoder(encConf)
+
+	var encoder zapcore.Encoder
+	if conf.format == "json" {
+		encoder = zapcore.NewJSONEncoder(encConf)
+	} else {
+		encoder = zapcore.NewConsoleEncoder(encConf)
+	}
 
 	core := zapcore.NewCore(encoder, fileSyncer, level)
 	logger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1), zap.AddStacktrace(zapcore.ErrorLevel))

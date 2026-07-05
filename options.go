@@ -14,6 +14,7 @@ type Options struct {
 	maxBackups int
 	writers    []io.Writer
 	withBody   bool
+	format     string // "console" (default) or "json"
 }
 
 // Option log option
@@ -107,6 +108,13 @@ func WithBody(b bool) Option {
 	}
 }
 
+// Format set log output format: "console" (default) or "json"
+func Format(f string) Option {
+	return func(o *Options) {
+		o.format = f
+	}
+}
+
 // toZapConfig converts Options to internal zap config
 func (o Options) toZapConfig() zapConfig {
 	levelStr := strings.ToLower(levelString[o.level])
@@ -118,6 +126,7 @@ func (o Options) toZapConfig() zapConfig {
 		maxBackups: o.maxBackups,
 		writers:    o.writers,
 		withBody:   o.withBody,
+		format:     o.format,
 	}
 }
 
@@ -130,4 +139,5 @@ type zapConfig struct {
 	maxBackups int
 	writers    []io.Writer
 	withBody   bool
+	format     string // "console" or "json"
 }

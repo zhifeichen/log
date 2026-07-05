@@ -57,6 +57,17 @@ func main() {
 	l.Debug("instance debug message")
 	l.Warn("instance warn message")
 
+	// ========== 测试 JSON 格式 ==========
+	fmt.Println("=== JSON 格式测试 ===")
+	jsonLogger := log.New(log.NewOptions(
+		log.Filename("json.log"),
+		log.Level("debug"),
+		log.Format("json"),
+	))
+	jsonLogger.Info("json format message")
+	jsonLogger.Debug("json debug message")
+	jsonLogger.Flush()
+
 	// ========== 测试 Discard/ResumeWriter ==========
 	fmt.Println("=== Discard/ResumeWriter 测试 ===")
 	l.Discard()
