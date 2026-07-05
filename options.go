@@ -13,6 +13,7 @@ type Options struct {
 	maxAge     int
 	maxBackups int
 	writers    []io.Writer
+	withBody   bool
 }
 
 // Option log option
@@ -97,4 +98,36 @@ func Writers(w ...io.Writer) Option {
 		}
 		o.writers = append(o.writers, w...)
 	}
+}
+
+// WithBody set whether to log HTTP request/response bodies
+func WithBody(b bool) Option {
+	return func(o *Options) {
+		o.withBody = b
+	}
+}
+
+// toZapConfig converts Options to internal zap config
+func (o Options) toZapConfig() zapConfig {
+	levelStr := strings.ToLower(levelString[o.level])
+	return zapConfig{
+		level:      levelStr,
+		filename:   o.filename,
+		maxSize:    o.maxSize,
+		maxAge:     o.maxAge,
+		maxBackups: o.maxBackups,
+		writers:    o.writers,
+		withBody:   o.withBody,
+	}
+}
+
+// zapConfig is the internal configuration for creating a zap-based Logger
+type zapConfig struct {
+	level      string
+	filename   string
+	maxSize    int
+	maxAge     int
+	maxBackups int
+	writers    []io.Writer
+	withBody   bool
 }

@@ -1,214 +1,242 @@
 package log
 
 import (
-	"bufio"
-	"fmt"
+	"context"
 	"io"
-	"io/ioutil"
-	"log"
-	"os"
-	"path/filepath"
-	"runtime"
-	"time"
+	"math/rand/v2"
+	"sync"
 
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// Logger the logger struct
-type Logger struct {
-	logger    *log.Logger
-	logLevel  level
-	oldWriter io.Writer
-	bufWriter *bufio.Writer
-	debounce  debounce
-	chn       chan string
+const traceIDKey = "traceID"
+
+// loggerImpl implements the Logger interface using zap
+type loggerImpl struct {
+	zapLogger *zap.SugaredLogger
+	discarded bool
+	mu        sync.RWMutex
 }
 
-// New init log
-func New(o Options) *Logger {
+// New creates a new Logger with the given options
+func New(o Options) Logger {
+	conf := o.toZapConfig()
+
+	var level zapcore.Level
+	if err := level.UnmarshalText([]byte(conf.level)); err != nil {
+		level = zapcore.DebugLevel
+	}
+
 	var w io.Writer = &lumberjack.Logger{
-		Filename:   o.filename,
-		MaxSize:    o.maxSize, // MB
-		MaxBackups: o.maxBackups,
-		MaxAge:     o.maxAge,
+		Filename:   conf.filename,
+		MaxSize:    conf.maxSize,
+		MaxBackups: conf.maxBackups,
+		MaxAge:     conf.maxAge,
 		LocalTime:  true,
 	}
-	if len(o.writers) > 0 {
-		o.writers = append(o.writers, w)
-		w = io.MultiWriter(o.writers...)
+	if len(conf.writers) > 0 {
+		all := make([]io.Writer, 0, len(conf.writers)+1)
+		all = append(all, conf.writers...)
+		all = append(all, w)
+		w = io.MultiWriter(all...)
 	}
 
-	bufWriter := bufio.NewWriterSize(w, 64*1024)
-	l := log.New(bufWriter, "", log.Ldate|log.Ltime|log.Lmicroseconds)
-	ll := &Logger{
-		logger:    l,
-		logLevel:  o.level,
-		bufWriter: bufWriter,
-		chn:       make(chan string, 50),
-	}
-	ll.debounce = newDebouncer(time.Second, func() {
-		ll.bufWriter.Flush()
-	})
-	go ll.loop()
-	return ll
-}
+	fileSyncer := zapcore.AddSync(w)
 
-func (logger *Logger) Discard() {
-	logger.oldWriter = logger.logger.Writer()
-	logger.logger.SetOutput(ioutil.Discard)
-}
+	encConf := zap.NewProductionEncoderConfig()
+	encConf.EncodeTime = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05.000")
+	encConf.EncodeLevel = zapcore.CapitalLevelEncoder
+	encoder := zapcore.NewConsoleEncoder(encConf)
 
-func (logger *Logger) ResumeWriter() {
-	if logger.oldWriter != nil {
-		logger.logger.SetOutput(logger.oldWriter)
-		logger.oldWriter = nil
+	core := zapcore.NewCore(encoder, fileSyncer, level)
+	logger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1), zap.AddStacktrace(zapcore.ErrorLevel))
+
+	return &loggerImpl{
+		zapLogger: logger.Sugar(),
 	}
 }
 
-func (logger *Logger) Flush() error {
-	if logger.bufWriter != nil {
-		return logger.bufWriter.Flush()
-	}
-	return nil
+// Discard discards all log output
+func (l *loggerImpl) Discard() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.discarded = true
 }
 
-func (logger *Logger) flush() {
-	logger.debounce()
+// ResumeWriter resumes log output after Discard
+func (l *loggerImpl) ResumeWriter() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.discarded = false
 }
 
-func (logger *Logger) loop() {
-	for {
-		logger.flush()
-		l, ok := <-logger.chn
-		if !ok {
-			return
-		}
-		if logger.bufWriter != nil && len(l) > logger.bufWriter.Available() {
-			logger.bufWriter.Flush()
-		}
-		logger.logger.Print(l)
-	}
+// Flush flushes any buffered log entries
+func (l *loggerImpl) Flush() error {
+	return l.zapLogger.Sync()
 }
 
-// Log makes use of log
-func (logger *Logger) Log(file string, line int, l level, v ...interface{}) {
-	fl := fmt.Sprintf("[%5s] %s:%d:", levelString[l], file, line)
-	lv := fmt.Sprint(v...)
-	// size := len(fl) + len(lv)
-	// if logger.bufWriter != nil && size > logger.bufWriter.Available() {
-	// 	logger.Flush()
-	// }
-	// logger.logger.Println(fl, lv)
-	// logger.flush()
-	buf := fmt.Sprintln(fl, lv)
-	logger.chn <- buf
-}
-
-// Logf makes use of log
-func (logger *Logger) Logf(file string, line int, l level, format string, v ...interface{}) {
-	fl := fmt.Sprintf("[%5s] %s:%d: ", levelString[l], file, line)
-	lv := fmt.Sprintf(format, v...)
-	// size := len(fl) + len(lv)
-	// if logger.bufWriter != nil && size > logger.bufWriter.Available() {
-	// 	logger.Flush()
-	// }
-	// logger.logger.Print(fl, lv)
-	// logger.flush()
-	buf := fmt.Sprint(fl, lv)
-	logger.chn <- buf
-}
-
-// WithLevel logs with the level specified
-func (logger *Logger) WithLevel(file string, line int, l level, v ...interface{}) {
-	if l > logger.logLevel {
-		return
-	}
-	logger.Log(file, line, l, v...)
-}
-
-// WithLevelf logs with the level specified
-func (logger *Logger) WithLevelf(file string, line int, l level, format string, v ...interface{}) {
-	if l > logger.logLevel {
-		return
-	}
-	logger.Logf(file, line, l, format, v...)
+func (l *loggerImpl) isDiscarded() bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.discarded
 }
 
 // Trace provides trace level logging
-func (logger *Logger) Trace(v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	logger.WithLevel(filepath.Base(file), line, LevelTrace, v...)
+func (l *loggerImpl) Trace(v ...any) {
+	if l.isDiscarded() {
+		return
+	}
+	l.zapLogger.Debug(v...)
 }
 
 // Tracef provides trace level logging
-func (logger *Logger) Tracef(format string, v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	logger.WithLevelf(filepath.Base(file), line, LevelTrace, format, v...)
+func (l *loggerImpl) Tracef(format string, v ...any) {
+	if l.isDiscarded() {
+		return
+	}
+	l.zapLogger.Debugf(format, v...)
 }
 
 // Debug provides debug level logging
-func (logger *Logger) Debug(v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	logger.WithLevel(filepath.Base(file), line, LevelDebug, v...)
+func (l *loggerImpl) Debug(v ...any) {
+	if l.isDiscarded() {
+		return
+	}
+	l.zapLogger.Debug(v...)
 }
 
 // Debugf provides debug level logging
-func (logger *Logger) Debugf(format string, v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	logger.WithLevelf(filepath.Base(file), line, LevelDebug, format, v...)
+func (l *loggerImpl) Debugf(format string, v ...any) {
+	if l.isDiscarded() {
+		return
+	}
+	l.zapLogger.Debugf(format, v...)
 }
 
 // Info provides info level logging
-func (logger *Logger) Info(v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	logger.WithLevel(filepath.Base(file), line, LevelInfo, v...)
+func (l *loggerImpl) Info(v ...any) {
+	if l.isDiscarded() {
+		return
+	}
+	l.zapLogger.Info(v...)
 }
 
 // Infof provides info level logging
-func (logger *Logger) Infof(format string, v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	logger.WithLevelf(filepath.Base(file), line, LevelInfo, format, v...)
+func (l *loggerImpl) Infof(format string, v ...any) {
+	if l.isDiscarded() {
+		return
+	}
+	l.zapLogger.Infof(format, v...)
 }
 
 // Warn provides warn level logging
-func (logger *Logger) Warn(v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	logger.WithLevel(filepath.Base(file), line, LevelWarn, v...)
+func (l *loggerImpl) Warn(v ...any) {
+	if l.isDiscarded() {
+		return
+	}
+	l.zapLogger.Warn(v...)
 }
 
 // Warnf provides warn level logging
-func (logger *Logger) Warnf(format string, v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	logger.WithLevelf(filepath.Base(file), line, LevelWarn, format, v...)
+func (l *loggerImpl) Warnf(format string, v ...any) {
+	if l.isDiscarded() {
+		return
+	}
+	l.zapLogger.Warnf(format, v...)
 }
 
 // Error provides error level logging
-func (logger *Logger) Error(v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	logger.WithLevel(filepath.Base(file), line, LevelError, v...)
+func (l *loggerImpl) Error(v ...any) {
+	if l.isDiscarded() {
+		return
+	}
+	l.zapLogger.Error(v...)
 }
 
 // Errorf provides error level logging
-func (logger *Logger) Errorf(format string, v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	logger.WithLevelf(filepath.Base(file), line, LevelError, format, v...)
+func (l *loggerImpl) Errorf(format string, v ...any) {
+	if l.isDiscarded() {
+		return
+	}
+	l.zapLogger.Errorf(format, v...)
 }
 
 // Fatal provides fatal level logging
-func (logger *Logger) Fatal(v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	logger.WithLevel(filepath.Base(file), line, LevelFatal, v...)
-	os.Exit(1)
+func (l *loggerImpl) Fatal(v ...any) {
+	if l.isDiscarded() {
+		return
+	}
+	l.zapLogger.Fatal(v...)
 }
 
 // Fatalf provides fatal level logging
-func (logger *Logger) Fatalf(format string, v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	logger.WithLevelf(filepath.Base(file), line, LevelFatal, format, v...)
-	os.Exit(1)
+func (l *loggerImpl) Fatalf(format string, v ...any) {
+	if l.isDiscarded() {
+		return
+	}
+	l.zapLogger.Fatalf(format, v...)
 }
 
-// Writer get log writer
-func (logger *Logger) Writer() io.Writer {
-	return logger.logger.Writer()
+// Write implements io.Writer
+func (l *loggerImpl) Write(p []byte) (n int, err error) {
+	if l.isDiscarded() {
+		return len(p), nil
+	}
+	l.zapLogger.Info(string(p))
+	return len(p), nil
+}
+
+// Writer returns an io.Writer that writes to this logger at Info level
+func (l *loggerImpl) Writer() io.Writer {
+	return l
+}
+
+// SetContext injects a random traceID into the context
+func (l *loggerImpl) SetContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, traceIDKey, rand.Uint32())
+}
+
+// GetNewContext extracts traceID from existing context, or generates new one
+func (l *loggerImpl) GetNewContext(ctx context.Context) context.Context {
+	newCtx := context.Background()
+	if ctx == nil {
+		return context.WithValue(newCtx, traceIDKey, rand.Uint32())
+	}
+	traceID, ok := ctx.Value(traceIDKey).(uint32)
+	if !ok {
+		traceID = rand.Uint32()
+	}
+	return context.WithValue(newCtx, traceIDKey, traceID)
+}
+
+// WithContext returns a new Logger with traceID from context
+func (l *loggerImpl) WithContext(ctx context.Context) Logger {
+	if l.isDiscarded() {
+		return l
+	}
+	if ctx == nil {
+		return l
+	}
+	traceID, ok := ctx.Value(traceIDKey).(uint32)
+	if !ok {
+		return l
+	}
+	return &loggerImpl{
+		zapLogger: l.zapLogger.With(zap.Uint32("traceID", traceID)),
+	}
+}
+
+// WithTraceID returns a new Logger with the given traceID
+func (l *loggerImpl) WithTraceID(traceID uint32) Logger {
+	if l.isDiscarded() {
+		return l
+	}
+	return &loggerImpl{
+		zapLogger: l.zapLogger.With(zap.Uint32("traceID", traceID)),
+	}
 }

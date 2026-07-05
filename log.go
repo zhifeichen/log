@@ -1,17 +1,35 @@
 package log
 
 import (
-	"bufio"
-	"fmt"
+	"context"
 	"io"
-	"log"
 	"os"
-	"path/filepath"
-	"runtime"
-	"time"
-
-	"gopkg.in/natefinch/lumberjack.v2"
+	"sync"
 )
+
+// Logger is the logging interface
+type Logger interface {
+	Trace(v ...any)
+	Tracef(format string, v ...any)
+	Debug(v ...any)
+	Debugf(format string, v ...any)
+	Info(v ...any)
+	Infof(format string, v ...any)
+	Warn(v ...any)
+	Warnf(format string, v ...any)
+	Error(v ...any)
+	Errorf(format string, v ...any)
+	Fatal(v ...any)
+	Fatalf(format string, v ...any)
+	Writer() io.Writer
+	Flush() error
+	Discard()
+	ResumeWriter()
+	SetContext(ctx context.Context) context.Context
+	GetNewContext(ctx context.Context) context.Context
+	WithContext(ctx context.Context) Logger
+	WithTraceID(traceID uint32) Logger
+}
 
 // Level is a log level
 type level int
@@ -36,167 +54,120 @@ var levelString = map[level]string{
 }
 
 var (
-	logLevel  = LevelTrace
-	bufWriter *bufio.Writer
-	debounced debounce
-	logChn    chan string
+	defaultLogger Logger
+	once          sync.Once
 )
+
+// getDefaultLogger returns the singleton logger, initializing it lazily if needed
+func getDefaultLogger() Logger {
+	once.Do(func() {
+		defaultLogger = New(NewOptions(
+			Filename("log.log"),
+			Level("debug"),
+		))
+	})
+	return defaultLogger
+}
 
 // Init init log
 func Init(o Options) {
-	logLevel = o.level
-	var w io.Writer = &lumberjack.Logger{
-		Filename:   o.filename,
-		MaxSize:    o.maxSize, // MB
-		MaxBackups: o.maxBackups,
-		MaxAge:     o.maxAge,
-		LocalTime:  true,
-	}
-	if len(o.writers) > 0 {
-		o.writers = append(o.writers, w)
-		w = io.MultiWriter(o.writers...)
-	}
-	bufWriter = bufio.NewWriterSize(w, 64*1024)
-	debounced = newDebouncer(time.Second, func() {
-		bufWriter.Flush()
-	})
-	logChn = make(chan string, 50)
-	go logLoop()
-	log.SetOutput(bufWriter)
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+	defaultLogger = New(o)
 }
 
-// Flush flush buf to file
+// Flush flush any buffered log entries
 func Flush() error {
-	if bufWriter != nil {
-		return bufWriter.Flush()
+	if defaultLogger != nil {
+		return defaultLogger.Flush()
 	}
 	return nil
 }
 
-func logLoop() {
-	for {
-		debounced()
-		l, ok := <-logChn
-		if !ok {
-			return
-		}
-		if bufWriter != nil && len(l) > bufWriter.Available() {
-			bufWriter.Flush()
-		}
-		log.Print(l)
+// Writer get log writer
+func Writer() io.Writer {
+	if defaultLogger != nil {
+		return defaultLogger.Writer()
 	}
-}
-
-// Log makes use of log
-func Log(file string, line int, l level, v ...interface{}) {
-	fl := fmt.Sprintf("[%5s] %s:%d:", levelString[l], file, line)
-	lv := fmt.Sprint(v...)
-	// log.Println(fl, lv)
-	str := fmt.Sprintln(fl, lv)
-	logChn <- str
-}
-
-// Logf makes use of log
-func Logf(file string, line int, l level, format string, v ...interface{}) {
-	fl := fmt.Sprintf("[%5s] %s:%d: ", levelString[l], file, line)
-	lv := fmt.Sprintf(format, v...)
-	// log.Print(fl, lv)
-	str := fmt.Sprint(fl, lv)
-	logChn <- str
-}
-
-// WithLevel logs with the level specified
-func WithLevel(file string, line int, l level, v ...interface{}) {
-	if l > logLevel {
-		return
-	}
-	Log(file, line, l, v...)
-}
-
-// WithLevelf logs with the level specified
-func WithLevelf(file string, line int, l level, format string, v ...interface{}) {
-	if l > logLevel {
-		return
-	}
-	Logf(file, line, l, format, v...)
+	return os.Stderr
 }
 
 // Trace provides trace level logging
-func Trace(v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	WithLevel(filepath.Base(file), line, LevelTrace, v...)
+func Trace(v ...any) {
+	getDefaultLogger().Trace(v...)
 }
 
 // Tracef provides trace level logging
-func Tracef(format string, v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	WithLevelf(filepath.Base(file), line, LevelTrace, format, v...)
+func Tracef(format string, v ...any) {
+	getDefaultLogger().Tracef(format, v...)
 }
 
 // Debug provides debug level logging
-func Debug(v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	WithLevel(filepath.Base(file), line, LevelDebug, v...)
+func Debug(v ...any) {
+	getDefaultLogger().Debug(v...)
 }
 
 // Debugf provides debug level logging
-func Debugf(format string, v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	WithLevelf(filepath.Base(file), line, LevelDebug, format, v...)
+func Debugf(format string, v ...any) {
+	getDefaultLogger().Debugf(format, v...)
 }
 
 // Info provides info level logging
-func Info(v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	WithLevel(filepath.Base(file), line, LevelInfo, v...)
+func Info(v ...any) {
+	getDefaultLogger().Info(v...)
 }
 
 // Infof provides info level logging
-func Infof(format string, v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	WithLevelf(filepath.Base(file), line, LevelInfo, format, v...)
+func Infof(format string, v ...any) {
+	getDefaultLogger().Infof(format, v...)
 }
 
 // Warn provides warn level logging
-func Warn(v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	WithLevel(filepath.Base(file), line, LevelWarn, v...)
+func Warn(v ...any) {
+	getDefaultLogger().Warn(v...)
 }
 
 // Warnf provides warn level logging
-func Warnf(format string, v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	WithLevelf(filepath.Base(file), line, LevelWarn, format, v...)
+func Warnf(format string, v ...any) {
+	getDefaultLogger().Warnf(format, v...)
 }
 
 // Error provides error level logging
-func Error(v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	WithLevel(filepath.Base(file), line, LevelError, v...)
+func Error(v ...any) {
+	getDefaultLogger().Error(v...)
 }
 
 // Errorf provides error level logging
-func Errorf(format string, v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	WithLevelf(filepath.Base(file), line, LevelError, format, v...)
+func Errorf(format string, v ...any) {
+	getDefaultLogger().Errorf(format, v...)
 }
 
 // Fatal provides fatal level logging
-func Fatal(v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	WithLevel(filepath.Base(file), line, LevelFatal, v...)
+func Fatal(v ...any) {
+	getDefaultLogger().Fatal(v...)
 	os.Exit(1)
 }
 
 // Fatalf provides fatal level logging
-func Fatalf(format string, v ...interface{}) {
-	_, file, line, _ := runtime.Caller(1)
-	WithLevelf(filepath.Base(file), line, LevelFatal, format, v...)
+func Fatalf(format string, v ...any) {
+	getDefaultLogger().Fatalf(format, v...)
 	os.Exit(1)
 }
 
-// Writer get log writer
-func Writer() io.Writer {
-	return log.Writer()
+// SetContext injects a random traceID into the context using the default logger
+func SetContext(ctx context.Context) context.Context {
+	return getDefaultLogger().SetContext(ctx)
+}
+
+// GetNewContext extracts or creates traceID using the default logger
+func GetNewContext(ctx context.Context) context.Context {
+	return getDefaultLogger().GetNewContext(ctx)
+}
+
+// WithContext returns a new Logger with traceID from context using the default logger
+func WithContext(ctx context.Context) Logger {
+	return getDefaultLogger().WithContext(ctx)
+}
+
+// WithTraceID returns a new Logger with the given traceID using the default logger
+func WithTraceID(traceID uint32) Logger {
+	return getDefaultLogger().WithTraceID(traceID)
 }
